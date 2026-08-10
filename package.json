@@ -19,6 +19,7 @@
   "icon": "assets/icon.icns"
 },
 "linux": {
+  "target": "AppImage",
   "icon": "assets/icon.png"
 },
 "icon": "assets/icon.ico",

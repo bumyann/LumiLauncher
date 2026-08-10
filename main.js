@@ -395,6 +395,7 @@ function createWindow() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  app.setAppUserModelId('com.bumyann.lumilauncher');
   createWindow();
   createTray();
   setupAutoUpdater();

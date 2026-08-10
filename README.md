@@ -56,6 +56,14 @@ If Lumiverse is already set up, it just starts normally.
 
 ---
 
+## Security
+
+Built with `nodeIntegration: false` and `contextIsolation: true`. 
+Keep the app updated — self-updates are built in so this should 
+happen automatically as new versions are released.
+
+---
+
 ## Error Messages
 
 | What You See | What It Means |

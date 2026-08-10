@@ -1,6 +1,6 @@
 {
   "name": "lumilauncher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A launcher for Lumiverse with human-readable error handling",
   "main": "main.js",
   "scripts": {

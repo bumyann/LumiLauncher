@@ -1,59 +1,67 @@
 # LumiLauncher
 
-A small Electron launcher for [Lumiverse](https://github.com/lumiverse) that replaces cryptic terminal errors with plain-English status messages.
+A simple launcher for [Lumiverse](https://lumiverse.chat) — no terminal required.
 
-![LumiLauncher screenshot](assets/screenshot.png)
+Instead of opening PowerShell every time, just double-click LumiLauncher. It handles starting, stopping, and updating Lumiverse for you, and shows plain-English messages instead of raw error codes.
+
+---
+
+## Download
+
+Grab the latest `.exe` installer from the [Releases](https://github.com/bumyann/LumiLauncher/releases) page. Install it, open it, done.
+
+---
+
+## Requirements
+
+- Windows 10 or 11
+- [Lumiverse](https://lumiverse.chat/guides/getting-started/installation/) already cloned/installed on your machine
+- [Git for Windows](https://git-scm.com/download/win) — only needed if you want to pull Lumiverse updates from inside the launcher
+
+---
+
+## First-time setup
+
+If you've never run Lumiverse before, LumiLauncher will automatically open a terminal tab when you click Launch. Just follow the prompts — type your password, create your account, and let it finish. After that, every launch is one click.
+
+If Lumiverse is already set up, it'll just start normally.
+
+---
 
 ## Features
 
-- **One-click launch** — starts Lumiverse and auto-kills any leftover process on port 7860
-- **Human-readable logs** — translates error codes into plain explanations with fix hints
-- **Tray icon** — minimises to system tray so Lumiverse keeps running in the background
-- **Update badge** — shows when Lumiverse has commits to pull
-- **Settings** — point it at any Lumiverse installation path
-- **Open in browser** button once Lumiverse is confirmed running
+- **One-click launch** — starts Lumiverse and clears port conflicts automatically
+- **Human-readable errors** — tells you what went wrong and how to fix it, in plain English
+- **Built-in terminal** — handles first-time setup wizard, passwords, and interactive prompts
+- **Lumiverse updates** — pull the latest commits (main or staging branch) from the Updates tab
+- **Auto-updating** — the launcher updates itself silently in the background
+- **System tray** — minimise to tray to keep Lumiverse running without a window open
+- **Open in browser** button once Lumiverse is running
 
-## Setup
+---
 
-### Requirements
+## First launch
 
-- [Node.js](https://nodejs.org/) (v18+) and npm
-- [Lumiverse](https://github.com/lumiverse) installed locally
-- Windows (tested on Windows 11)
+1. Install LumiLauncher from the `.exe` installer
+2. Open it and go to **⚙ Settings**
+3. Set your Lumiverse folder path (e.g. `C:\Users\you\Lumiverse`)
+4. Click **Launch**
 
-### Install & run
-
-```bash
-git clone https://github.com/bumyann/LumiLauncher
-cd lumilauncher
-npm install
-npm start
-```
-
-### Build a distributable .exe
-
-```bash
-npm run build
-```
-
-The installer ends up in `dist/`. Share it with anyone who has Lumiverse installed.
-
-### First run
-
-> **Important:** If you haven't run Lumiverse before, open PowerShell and run `.\start.ps1` manually once first. This completes the first-time setup wizard (password, account creation, etc.) which requires interactive input that LumiLauncher can't handle. After that, you can use LumiLauncher for everything.
-
-Once setup is done, open LumiLauncher and go to **⚙ Settings** to set the path to your Lumiverse folder (e.g. `C:\Users\you\Lumiverse`).
+---
 
 ## Error messages explained
 
 | What you see | What it means |
 |---|---|
-| ⚠️ Port 7860 is already in use | A previous Lumiverse process didn't shut down. LumiLauncher will kill it and retry. |
-| ❌ Couldn't kill PID — try running as administrator | Windows blocked the kill. Right-click LumiLauncher → Run as administrator. |
-| ❌ Lumiverse folder not found | The path in Settings doesn't exist. Update it to match your install. |
-| 💥 Lumiverse crashed | An extension or config error caused a runtime crash. Check recent extension changes. |
-| 🔔 Update available — N commits behind | Pull latest from the Lumiverse repo. |
+| ⚠️ Port 7860 is already in use | A previous Lumiverse process didn't shut down cleanly. LumiLauncher will kill it and retry automatically. |
+| ❌ Couldn't kill PID — try running as administrator | Windows blocked the process kill. Right-click LumiLauncher → Run as administrator. |
+| ❌ Lumiverse folder not found | The path in Settings doesn't exist. Update it to match your install location. |
+| 💥 Lumiverse crashed | An extension or config error caused a crash. Check any extensions you recently changed. |
+| 🔔 Update available — N commits behind | There's a Lumiverse update ready. Go to the Updates tab to pull it. |
+| ❌ Git not found | Install [Git for Windows](https://git-scm.com/download/win) to use the update feature. |
+
+---
 
 ## License
 
-MIT
+MIT — made by [bumyann](https://github.com/bumyann)

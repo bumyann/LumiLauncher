@@ -15,6 +15,7 @@
       "target": "nsis",
       "icon": "assets/icon.ico"
     },
+    "icon": "assets/icon.ico",
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true

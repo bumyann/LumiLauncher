@@ -28,9 +28,10 @@
       "allowToChangeInstallationDirectory": true
     },
     "publish": {
-      "provider": "github",
-      "owner": "bumyann",
-      "repo": "LumiLauncher"
+  "provider": "github",
+  "owner": "bumyann",
+  "repo": "LumiLauncher",
+  "releaseType": "release"
     },
     "files": [
       "**/*",

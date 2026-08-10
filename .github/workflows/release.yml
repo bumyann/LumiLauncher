@@ -7,6 +7,7 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -25,10 +26,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: npm install
+
+      - name: Fix permissions (macOS)
+        if: matrix.os == 'macos-latest'
+        run: chmod +x node_modules/.bin/electron-builder
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'

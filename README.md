@@ -42,7 +42,7 @@ The installer ends up in `dist/`. Share it with anyone who has Lumiverse install
 
 > **Important:** If you haven't run Lumiverse before, open PowerShell and run `.\start.ps1` manually once first. This completes the first-time setup wizard (password, account creation, etc.) which requires interactive input that LumiLauncher can't handle. After that, you can use LumiLauncher for everything.
 
-Once setup is done, open LumiLauncher and go to **⚙ Settings** to set the path to your Lumiverse folder (e.g. `C:\Users\you\Lumiverse`). It defaults to `C:\Users\ilyan\Lumiverse`.
+Once setup is done, open LumiLauncher and go to **⚙ Settings** to set the path to your Lumiverse folder (e.g. `C:\Users\you\Lumiverse`).
 
 ## Error messages explained
 

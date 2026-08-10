@@ -1,5 +1,7 @@
 # LumiLauncher
 
+<img src="https://files.catbox.moe/m4ofo3.png" alt="LumiLauncher">
+
 A launcher for [Lumiverse](https://lumiverse.chat) because I'm a lazy bastard that hates even the smallest inconvenience, and opening PowerShell every time is not it.
 
 Double-click, it starts. That's the pitch.

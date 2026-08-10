@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LumiLauncher</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=VT323&family=Inter:wght@300;400;500;600&display=swap');
+  :root {
+    --bg:        #0d0d14; --bg2: #13131f; --bg3: #1a1a2e;
+    --border:    #2a2a45; --border2: #3a3a60;
+    --accent:    #9896bb; --accent2: #5d6da5; --accent3: #344979;
+    --pink:      #c084b0; --text: #d4d4e8; --text-dim: #7070a0; --text-mute: #404060;
+    --success:   #7bbf8a; --warn: #c9a96e; --error: #c97070; --info: #7aa8d0;
+    --radius:    6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; font-size: 13px; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+
+  /* ── Titlebar ── */
+  #titlebar { display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 38px; background: var(--bg2); border-bottom: 1px solid var(--border); -webkit-app-region: drag; flex-shrink: 0; }
+  .title-left { display: flex; align-items: center; gap: 8px; }
+  .title-logo { font-family: 'VT323', monospace; font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+  .title-logo span { color: var(--pink); }
+  .title-version { font-size: 10px; color: var(--text-mute); padding: 2px 5px; border: 1px solid var(--border); border-radius: 3px; }
+  .title-controls { display: flex; gap: 6px; -webkit-app-region: no-drag; }
+  .title-btn { width: 11px; height: 11px; border-radius: 50%; border: none; cursor: pointer; transition: opacity .15s; }
+  .title-btn:hover { opacity: .75; }
+  .title-btn.min { background: #c9a96e; } .title-btn.close { background: #c97070; }
+
+  /* ── Status ── */
+  #statusbar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-mute); transition: background .3s; flex-shrink: 0; }
+  #status-dot.running  { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  #status-dot.starting { background: var(--warn); animation: pulse 1s infinite; }
+  #status-dot.error    { background: var(--error); }
+  #status-dot.stopped  { background: var(--text-mute); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+  #status-text { font-size: 12px; color: var(--text-dim); flex: 1; }
+
+  /* ── Tabs ── */
+  #tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg2); }
+  .tab { padding: 7px 16px; font-size: 11px; font-weight: 500; color: var(--text-mute); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; text-transform: uppercase; letter-spacing: 1px; }
+  .tab:hover { color: var(--text-dim); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent2); }
+  .tab-badge { display: inline-block; background: var(--accent3); color: var(--accent); border-radius: 8px; font-size: 9px; padding: 1px 5px; margin-left: 5px; vertical-align: middle; }
+
+  /* ── Panels ── */
+  .panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  /* ── Buttons ── */
+  .btn { padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 5px; }
+  .btn:hover { background: var(--border); border-color: var(--accent2); }
+  .btn:active { transform: scale(.97); }
+  .btn.primary { background: var(--accent3); border-color: var(--accent2); color: #fff; }
+  .btn.primary:hover { background: var(--accent2); }
+  .btn.danger { border-color: #5a3a3a; color: var(--error); }
+  .btn.danger:hover { background: #2a1a1a; border-color: var(--error); }
+  .btn.success-btn { border-color: #3a5a3a; color: var(--success); }
+  .btn.success-btn:hover { background: #1a2a1a; border-color: var(--success); }
+  .btn:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
+
+  /* ── Controls bar ── */
+  #controls { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; align-items: center; }
+  #btn-open { margin-left: auto; }
+
+  /* ── Log ── */
+  #log-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; flex-shrink: 0; }
+  .log-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-mute); font-weight: 600; }
+  #btn-clear { font-size: 10px; padding: 2px 8px; background: none; border: 1px solid var(--border); color: var(--text-mute); border-radius: 3px; cursor: pointer; font-family: 'Inter', sans-serif; }
+  #btn-clear:hover { border-color: var(--border2); color: var(--text-dim); }
+  #log { flex: 1; overflow-y: auto; padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 2px; font-family: 'VT323', monospace; font-size: 15px; line-height: 1.5; }
+  #log::-webkit-scrollbar { width: 4px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .log-line { display: flex; gap: 8px; align-items: flex-start; padding: 1px 0; }
+  .log-time { color: var(--text-mute); flex-shrink: 0; font-size: 13px; margin-top: 1px; }
+  .log-msg  { flex: 1; word-break: break-word; }
+  .log-line.success .log-msg { color: var(--success); }
+  .log-line.error   .log-msg { color: var(--error); }
+  .log-line.warn    .log-msg { color: var(--warn); }
+  .log-line.info    .log-msg { color: var(--info); }
+  .log-line.raw     .log-msg { color: var(--text-mute); font-size: 13px; }
+
+  /* ── Terminal panel ── */
+  #terminal-banner {
+    background: linear-gradient(135deg, #1a1228, #13131f);
+    border-bottom: 1px solid var(--accent3);
+    padding: 10px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .terminal-banner-text { font-size: 12px; color: var(--accent); }
+  .terminal-banner-text strong { color: var(--pink); }
+  #xterm-container {
+    flex: 1; overflow: hidden; padding: 8px;
+    background: #0a0a10;
+  }
+  .xterm { height: 100%; }
+  .xterm-viewport::-webkit-scrollbar { width: 4px; }
+  .xterm-viewport::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Updates panel ── */
+  #updates-panel { padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+  .update-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .update-card-header { display: flex; align-items: center; justify-content: space-between; }
+  .update-card-title { font-family: 'VT323', monospace; font-size: 17px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+  .update-pill { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-family: 'Inter', sans-serif; }
+  .update-pill.available  { background: var(--accent3); color: var(--accent);  border: 1px solid var(--accent2); }
+  .update-pill.up-to-date { background: #1a2a1a;        color: var(--success); border: 1px solid #3a5a3a; }
+  .update-pill.updating   { background: #2a2210;        color: var(--warn);    border: 1px solid #5a4a20; }
+  .update-pill.error      { background: #2a1010;        color: var(--error);   border: 1px solid #5a2020; }
+  .update-pill.restart    { background: var(--accent3); color: var(--pink);    border: 1px solid var(--accent2); }
+  .update-desc  { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .update-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .branch-select { background: var(--bg3); border: 1px solid var(--border2); color: var(--text); font-family: 'Inter', sans-serif; font-size: 12px; padding: 5px 8px; border-radius: var(--radius); cursor: pointer; outline: none; }
+  .branch-select:focus { border-color: var(--accent2); }
+  .branch-select option { background: var(--bg3); }
+  .update-note { font-size: 11px; color: var(--text-mute); }
+
+  /* ── Settings overlay ── */
+  #settings-overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,.6); z-index: 10; align-items: center; justify-content: center; }
+  #settings-overlay.open { display: flex; }
+  #settings-panel { background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px; padding: 24px; width: 440px; display: flex; flex-direction: column; gap: 16px; }
+  .settings-title { font-family: 'VT323', monospace; font-size: 20px; color: var(--accent); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+  .field input, .field select { background: var(--bg3); border: 1px solid var(--border2); border-radius: var(--radius); color: var(--text); font-family: 'Inter', sans-serif; font-size: 12px; padding: 7px 10px; outline: none; }
+  .field input:focus, .field select:focus { border-color: var(--accent2); }
+  .field select option { background: var(--bg3); }
+  .settings-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .settings-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+  .settings-danger-label { font-size: 10px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── Footer ── */
+  #footer { padding: 5px 16px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .footer-text { font-size: 10px; color: var(--text-mute); }
+  .footer-link { font-size: 10px; color: var(--accent2); cursor: pointer; text-decoration: none; }
+  .footer-link:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- Titlebar -->
+<div id="titlebar">
+  <div class="title-left">
+    <span class="title-logo">LUMI<span>LAUNCHER</span></span>
+    <span class="title-version">v1.0.0</span>
+  </div>
+  <div class="title-controls">
+    <button class="title-btn min"   onclick="window.lumi.minimize()"></button>
+    <button class="title-btn close" onclick="window.lumi.hide()"></button>
+  </div>
+</div>
+
+<!-- Status -->
+<div id="statusbar">
+  <div id="status-dot" class="stopped"></div>
+  <span id="status-text">Lumiverse is not running.</span>
+</div>
+
+<!-- Tabs -->
+<div id="tabs">
+  <div class="tab active" data-tab="console" onclick="switchTab('console')">Console</div>
+  <div class="tab"        data-tab="terminal" onclick="switchTab('terminal')">Terminal</div>
+  <div class="tab"        data-tab="updates"  onclick="switchTab('updates')">
+    Updates <span class="tab-badge" id="updates-badge" style="display:none">!</span>
+  </div>
+</div>
+
+<!-- ── Console panel ── -->
+<div class="panel active" id="tab-console">
+  <div id="controls">
+    <button class="btn primary" id="btn-start"   onclick="handleStart()"><span>▶</span> Launch</button>
+    <button class="btn danger"  id="btn-stop"    onclick="handleStop()"    disabled><span>■</span> Stop</button>
+    <button class="btn"         id="btn-restart" onclick="handleRestart()" disabled><span>↺</span> Restart</button>
+    <button class="btn"         id="btn-settings" onclick="openSettings()"><span>⚙</span> Settings</button>
+    <button class="btn"         id="btn-open"    onclick="window.lumi.openBrowser()" disabled style="margin-left:auto"><span>↗</span> Open in browser</button>
+  </div>
+  <div id="log-header">
+    <span class="log-label">console output</span>
+    <button id="btn-clear" onclick="clearLogs()">clear</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+<!-- ── Terminal panel ── -->
+<div class="panel" id="tab-terminal">
+  <div id="terminal-banner">
+    <span class="terminal-banner-text">
+      <strong>Terminal</strong> — full interactive access · type passwords, answer prompts, run commands
+    </span>
+  </div>
+  <div id="xterm-container"></div>
+</div>
+
+<!-- ── Updates panel ── -->
+<div class="panel" id="tab-updates">
+  <div id="updates-panel">
+    <div class="update-card">
+      <div class="update-card-header">
+        <div class="update-card-title">✦ Lumiverse <span class="update-pill" id="lumi-pill">—</span></div>
+      </div>
+      <div class="update-desc">Pull the latest Lumiverse commits. Choose which branch to update to before pulling.</div>
+      <div class="update-actions">
+        <select class="branch-select" id="branch-select">
+          <option value="staging">staging (recommended)</option>
+          <option value="main">main (stable)</option>
+        </select>
+        <button class="btn primary" id="btn-update-lumi" onclick="doUpdateLumiverse()"><span>↓</span> Pull update</button>
+      </div>
+      <div class="update-note" id="lumi-note">Stop Lumiverse before updating to avoid file conflicts.</div>
+    </div>
+
+    <div class="update-card">
+      <div class="update-card-header">
+        <div class="update-card-title">✦ LumiLauncher <span class="update-pill" id="launcher-pill">checking...</span></div>
+      </div>
+      <div class="update-desc">Updates are downloaded automatically in the background. When a new version is ready, just click restart.</div>
+      <div class="update-actions">
+        <button class="btn" id="btn-check-launcher" onclick="window.lumi.checkLauncherUpdate()"><span>↻</span> Check now</button>
+        <button class="btn success-btn" id="btn-install-launcher" onclick="window.lumi.installLauncherUpdate()" style="display:none"><span>↺</span> Restart &amp; install</button>
+      </div>
+      <div class="update-note" id="launcher-note">LumiLauncher checks for updates automatically on startup.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div id="footer">
+  <span class="footer-text">minimise to tray to keep lumiverse running in the background</span>
+  <a class="footer-link" href="https://github.com/bumyann/LumiLauncher" target="_blank">github ↗</a>
+</div>
+
+<!-- Settings overlay -->
+<div id="settings-overlay">
+  <div id="settings-panel">
+    <div class="settings-title">⚙ Settings</div>
+    <div class="field">
+      <label>Lumiverse installation path</label>
+      <input type="text" id="input-path" placeholder="C:\Users\you\Lumiverse"/>
+    </div>
+    <div class="field">
+      <label>Default branch</label>
+      <select id="input-branch">
+        <option value="staging">staging</option>
+        <option value="main">main</option>
+      </select>
+    </div>
+    <hr class="settings-divider"/>
+    <div class="settings-danger-label">Danger zone</div>
+    <div class="field">
+      <label>Re-run first-time setup wizard</label>
+      <button class="btn danger" onclick="resetSetup()" style="align-self:flex-start"><span>↺</span> Reset setup flag</button>
+    </div>
+    <div class="settings-actions">
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+  // ── Elements ──
+  const logEl        = document.getElementById('log');
+  const statusDot    = document.getElementById('status-dot');
+  const statusText   = document.getElementById('status-text');
+  const btnStart     = document.getElementById('btn-start');
+  const btnStop      = document.getElementById('btn-stop');
+  const btnRestart   = document.getElementById('btn-restart');
+  const btnOpen      = document.getElementById('btn-open');
+  const updatesBadge = document.getElementById('updates-badge');
+
+  const STATUS_LABELS = {
+    stopped:  'Lumiverse is not running.',
+    starting: 'Starting Lumiverse...',
+    running:  'Lumiverse is running on port 7860.',
+    error:    'Something went wrong. Check the console tab.',
+  };
+
+  // ── xterm.js setup ──
+  const term = new Terminal({
+    theme: {
+      background:  '#0a0a10',
+      foreground:  '#d4d4e8',
+      cursor:      '#9896bb',
+      black:       '#0d0d14',
+      brightBlack: '#404060',
+      blue:        '#5d6da5',
+      brightBlue:  '#9896bb',
+      magenta:     '#c084b0',
+      cyan:        '#7aa8d0',
+      green:       '#7bbf8a',
+      yellow:      '#c9a96e',
+      red:         '#c97070',
+    },
+    fontFamily: '"Cascadia Code", "Fira Code", "Consolas", monospace',
+    fontSize: 13,
+    lineHeight: 1.4,
+    cursorBlink: true,
+    scrollback: 2000,
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('xterm-container'));
+  fitAddon.fit();
+
+  // send keystrokes to pty
+  term.onData(data => window.lumi.termInput(data));
+
+  // resize observer
+  const resizeObs = new ResizeObserver(() => {
+    fitAddon.fit();
+    window.lumi.termResize(term.cols, term.rows);
+  });
+  resizeObs.observe(document.getElementById('xterm-container'));
+
+  // ── Tabs ──
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+    if (name === 'updates') updatesBadge.style.display = 'none';
+    if (name === 'terminal') { setTimeout(() => { fitAddon.fit(); term.focus(); }, 50); }
+  }
+
+  // ── Mode switching (launcher ↔ terminal) ──
+  function setMode(mode) {
+    if (mode === 'terminal') {
+      switchTab('terminal');
+      term.writeln('\r\n\x1b[35m✦ First-time setup — type your password and follow the prompts below.\x1b[0m\r\n');
+    } else {
+      switchTab('console');
+    }
+  }
+
+  // ── Status ──
+  function setStatus(s) {
+    statusDot.className = s;
+    statusText.textContent = STATUS_LABELS[s] || s;
+    btnStart.disabled   = s === 'starting' || s === 'running';
+    btnStop.disabled    = s === 'stopped'  || s === 'error';
+    btnRestart.disabled = s === 'stopped'  || s === 'error' || s === 'starting';
+    btnOpen.disabled    = s !== 'running';
+  }
+
+  // ── Logs ──
+  function addLog(entry) {
+    const now = new Date();
+    const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const line = document.createElement('div');
+    line.className = `log-line ${entry.level}`;
+    line.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${esc(entry.msg)}</span>`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function pad(n) { return String(n).padStart(2,'0'); }
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function clearLogs() { logEl.innerHTML = ''; window.lumi.clearLogs(); }
+
+  // ── Controls ──
+  function handleStart() {
+    setStatus('starting');
+    addLog({ level: 'info', msg: '— launching lumiverse —' });
+    window.lumi.start();
+  }
+  function handleStop()    { window.lumi.stop(); }
+  function handleRestart() { window.lumi.restart(); setStatus('starting'); addLog({ level: 'info', msg: '↺ restarting lumiverse...' }); }
+
+  // ── Updates ──
+  function setPill(id, state, label) {
+    const el = document.getElementById(id);
+    el.className = `update-pill ${state}`;
+    el.textContent = label;
+  }
+
+  function doUpdateLumiverse() {
+    const branch = document.getElementById('branch-select').value;
+    document.getElementById('btn-update-lumi').disabled = true;
+    setPill('lumi-pill', 'updating', 'updating...');
+    addLog({ level: 'info', msg: `— updating lumiverse (${branch}) —` });
+    switchTab('console');
+    window.lumi.updateLumiverse(branch);
+  }
+
+  function handleUpdateStatus(d) {
+    if (d.type === 'lumiverse') {
+      const btn = document.getElementById('btn-update-lumi');
+      if (d.status === 'available') {
+        setPill('lumi-pill', 'available', `${d.commits} update${d.commits > 1 ? 's' : ''}`);
+        updatesBadge.style.display = 'inline';
+        document.getElementById('lumi-note').textContent = `${d.commits} commit(s) available. Pull when Lumiverse is stopped.`;
+      } else if (d.status === 'done')     { setPill('lumi-pill', 'up-to-date', 'up to date'); btn.disabled = false; }
+      else if (d.status === 'error')      { setPill('lumi-pill', 'error', 'error'); btn.disabled = false; }
+      else if (d.status === 'updating')   { setPill('lumi-pill', 'updating', 'updating...'); }
+    }
+    if (d.type === 'launcher') {
+      const btnI = document.getElementById('btn-install-launcher');
+      const btnC = document.getElementById('btn-check-launcher');
+      const note = document.getElementById('launcher-note');
+      if (d.status === 'checking')         { setPill('launcher-pill', 'updating', 'checking...'); }
+      else if (d.status === 'up-to-date')  { setPill('launcher-pill', 'up-to-date', 'up to date'); note.textContent = 'LumiLauncher is up to date.'; }
+      else if (d.status === 'downloading') {
+        const pct = d.percent ? ` (${d.percent}%)` : '';
+        setPill('launcher-pill', 'updating', `downloading${pct}`);
+        note.textContent = d.version ? `Downloading v${d.version}...` : 'Downloading...';
+        updatesBadge.style.display = 'inline';
+      } else if (d.status === 'ready') {
+        setPill('launcher-pill', 'restart', 'ready to install');
+        btnI.style.display = 'inline-flex'; btnC.style.display = 'none';
+        note.textContent = `v${d.version} is ready. Restart to apply.`;
+        updatesBadge.style.display = 'inline';
+      } else if (d.status === 'error') {
+        setPill('launcher-pill', 'error', 'check failed');
+        note.textContent = 'Could not check for updates. Check your internet connection.';
+      }
+    }
+  }
+
+  // ── Settings ──
+  async function openSettings() {
+    const cfg = await window.lumi.getConfig();
+    document.getElementById('input-path').value   = cfg.lumiversePath   || '';
+    document.getElementById('input-branch').value = cfg.lumiverseBranch || 'staging';
+    document.getElementById('settings-overlay').classList.add('open');
+  }
+  function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
+  function saveSettings() {
+    const p = document.getElementById('input-path').value.trim();
+    const b = document.getElementById('input-branch').value;
+    if (p) window.lumi.saveConfig({ lumiversePath: p, lumiverseBranch: b });
+    document.getElementById('branch-select').value = b;
+    closeSettings();
+    addLog({ level: 'info', msg: '✓ Settings saved.' });
+  }
+  function resetSetup() {
+    closeSettings();
+    window.lumi.resetSetup();
+    addLog({ level: 'warn', msg: '↺ Setup flag reset. Next launch will open the setup wizard.' });
+  }
+
+  // ── IPC listeners ──
+  window.lumi.onLog(addLog);
+  window.lumi.onStatus(setStatus);
+  window.lumi.onClearLogs(() => { logEl.innerHTML = ''; });
+  window.lumi.onUpdateStatus(handleUpdateStatus);
+  window.lumi.onTermData(data => term.write(data));
+  window.lumi.onMode(mode => setMode(mode));
+
+  // ── Init ──
+  (async () => {
+    const [running, setupDone, cfg] = await Promise.all([
+      window.lumi.isRunning(),
+      window.lumi.isSetupComplete(),
+      window.lumi.getConfig(),
+    ]);
+    setStatus(running ? 'running' : 'stopped');
+    if (cfg.lumiverseBranch) document.getElementById('branch-select').value = cfg.lumiverseBranch;
+    if (!setupDone) {
+      addLog({ level: 'warn', msg: '⚠️ First-time setup detected. Click Launch — the terminal tab will open for setup.' });
+    }
+  })();
+</script>
+</body>
+</html>

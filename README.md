@@ -75,4 +75,4 @@ Lumiverse already has an [official desktop tray companion](https://lumiverse.cha
 
 ## License
 
-MIT — [bumyann](https://github.com/bumyann)
+MIT 

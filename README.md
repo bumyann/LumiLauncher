@@ -14,8 +14,8 @@ Double-click, it starts. That's the pitch.
 - Kills leftover port conflicts automatically so you don't have to
 - Tells you what went wrong in plain English instead of exit codes
 - Has a built-in terminal for first-time setup (passwords, account creation, etc.)
-- Pulls Lumiverse updates from inside the app (main or staging branch) — Lumiverse also has its own updater in the web UI, this is just for convenience
-- Updates itself silently in the background
+- Pulls Lumiverse updates from inside the app (main or staging branch) — Lumiverse also has its own updater in the web UI, this is just for convenience!
+- Checks for LumiLauncher updates automatically. Updates to the latest version without needing to download a new file.
 - Lives in the system tray so you can close the window without killing Lumiverse
 
 ---

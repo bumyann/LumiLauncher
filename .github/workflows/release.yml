@@ -31,8 +31,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Fix permissions (macOS)
-        if: matrix.os == 'macos-latest'
+      - name: Fix permissions
+        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
         run: chmod +x node_modules/.bin/electron-builder
 
       - name: Install Linux dependencies

@@ -5,16 +5,20 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 
-const LUMIVERSE_PORT = 7860;
-const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
-const SETUP_DONE_PATH = path.join(app.getPath('userData'), 'setup_complete');
+const LUMIVERSE_PORT   = 7860;
+const BANANABREAD_PORT = 8008;
+const CONFIG_PATH      = path.join(app.getPath('userData'), 'config.json');
+const SETUP_DONE_PATH  = path.join(app.getPath('userData'), 'setup_complete');
 
-let mainWindow = null;
-let tray = null;
-let ptyProcess = null;   // node-pty instance (used in terminal/setup mode)
-let isQuitting = false;
-let isStopping = false;
-let isRunning  = false;
+let mainWindow      = null;
+let tray            = null;
+let ptyProcess      = null;
+let bbProcess       = null;   // BananaBread child process
+let isQuitting      = false;
+let isStopping      = false;
+let isBBStopping    = false;
+let isRunning       = false;
+let isBBRunning     = false;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +26,12 @@ function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch {}
-  return { lumiversePath: 'C:\\Users\\ilyan\\Lumiverse', lumiverseBranch: 'staging' };
+  return {
+    lumiversePath:    '',
+    lumiverseBranch:  'staging',
+    bananabreadPath:  '',
+    bananabreadEnabled: false,
+  };
 }
 
 function saveConfig(cfg) { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); }
@@ -54,7 +63,7 @@ function isPortInUse(port) {
   });
 }
 
-// ── Log parser (for non-terminal mode) ───────────────────────────────────────
+// ── Log parser ────────────────────────────────────────────────────────────────
 
 function parseLog(raw) {
   const line = raw.trim();
@@ -79,15 +88,15 @@ function parseLog(raw) {
       level: 'info', msg: (m) => `  ✓ Extension loaded: ${m[1]}` },
     { re: /\[Spindle:(.+)\] .*error|failed/i,
       level: 'warn', msg: (m) => `⚠️ Extension issue: ${m[1]}` },
-    { re: /\[db\] startup/i,         level: 'info', msg: '🗄️ Database loaded.' },
-    { re: /Bun \d+\.\d+\.\d+ found/i,level: 'info', msg: '✓ Bun runtime found.' },
-    { re: /Data directory:/i,         level: 'info', msg: '📁 Data directory verified.' },
+    { re: /\[db\] startup/i,          level: 'info', msg: '🗄️ Database loaded.' },
+    { re: /Bun \d+\.\d+\.\d+ found/i, level: 'info', msg: '✓ Bun runtime found.' },
+    { re: /Data directory:/i,          level: 'info', msg: '📁 Data directory verified.' },
     { re: /Disk hosting.*(\d+\.\d+)% used/i,
       level: (m) => parseFloat(m[1]) > 90 ? 'warn' : 'info',
       msg:   (m) => parseFloat(m[1]) > 90 ? `⚠️ Disk is ${m[1]}% full — Lumiverse may slow down.` : `💾 Disk usage: ${m[1]}%` },
-    { re: /AUTH_SECRET derived/i,    level: 'info', msg: '🔑 Auth identity loaded.' },
-    { re: /VAPID keys/i,             level: 'info', msg: '🔔 Push notification keys loaded.' },
-    { re: /Pre-warmed: (.+)/i,       level: 'info', msg: (m) => `🔥 Tokenizer ready: ${m[1]}` },
+    { re: /AUTH_SECRET derived/i, level: 'info', msg: '🔑 Auth identity loaded.' },
+    { re: /VAPID keys/i,          level: 'info', msg: '🔔 Push notification keys loaded.' },
+    { re: /Pre-warmed: (.+)/i,    level: 'info', msg: (m) => `🔥 Tokenizer ready: ${m[1]}` },
   ];
   for (const p of patterns) {
     const m = line.match(p.re);
@@ -100,7 +109,41 @@ function parseLog(raw) {
   return { level: 'raw', msg: line, raw: line };
 }
 
-// ── Terminal (PTY) mode — used for setup wizard + normal launching ─────────────
+function parseBBLog(raw) {
+  const line = raw.trim();
+  const patterns = [
+    { re: /uvicorn.*running|application startup complete|started server/i,
+      level: 'success', msg: '✅ BananaBread is up on port 8008.' },
+    { re: /downloading|fetching model/i,
+      level: 'info', msg: '📥 [BB] Downloading model — this may take a while on first run...' },
+    { re: /model loaded|loaded.*model/i,
+      level: 'info', msg: '🧠 [BB] Model loaded.' },
+    { re: /warmup/i,
+      level: 'info', msg: '🔥 [BB] Running warmup inference...' },
+    { re: /error|exception|traceback/i,
+      level: 'error', msg: `❌ [BB] ${line}` },
+    { re: /warning/i,
+      level: 'warn', msg: `⚠️ [BB] ${line}` },
+  ];
+  for (const p of patterns) {
+    const m = line.match(p.re);
+    if (m) {
+      const level = typeof p.level === 'function' ? p.level(m) : p.level;
+      const msg   = typeof p.msg   === 'function' ? p.msg(m)   : p.msg;
+      return { level, msg, raw: line };
+    }
+  }
+  return { level: 'raw', msg: `[BB] ${line}`, raw: line };
+}
+
+// ── uv check ─────────────────────────────────────────────────────────────────
+
+function isUvAvailable() {
+  try { execSync('uv --version', { shell: true, timeout: 5000 }); return true; }
+  catch { return false; }
+}
+
+// ── Terminal (PTY) mode ───────────────────────────────────────────────────────
 
 function spawnPty(lumiversePath) {
   let pty;
@@ -110,36 +153,22 @@ function spawnPty(lumiversePath) {
     return null;
   }
 
-  const shell = 'powershell.exe';
-  const args  = ['-ExecutionPolicy', 'Bypass', '-File', path.join(lumiversePath, 'start.ps1')];
-
-  const proc = pty.spawn(shell, args, {
-    name: 'xterm-color',
-    cols: 80,
-    rows: 24,
-    cwd: lumiversePath,
-    env: process.env,
-  });
+  const proc = pty.spawn('powershell.exe', [
+    '-ExecutionPolicy', 'Bypass',
+    '-File', path.join(lumiversePath, 'start.ps1')
+  ], { name: 'xterm-color', cols: 80, rows: 24, cwd: lumiversePath, env: process.env });
 
   proc.onData(data => {
-    // forward raw terminal data to renderer
     sendTermData(data);
-
-    // also parse for status updates
     const lines = data.split(/\r?\n/);
     for (const line of lines) {
-      if (!line.trim()) continue;
-      if (isStopping || isQuitting) continue;
-
+      if (!line.trim() || isStopping || isQuitting) continue;
       const parsed = parseLog(line);
       if (parsed.level === 'success') {
         isRunning = true;
         sendStatus('running');
         updateTray('running');
-        if (!isSetupComplete()) {
-          markSetupComplete();
-          sendMode('launcher'); // switch to launcher UI after first successful run
-        }
+        if (!isSetupComplete()) { markSetupComplete(); sendMode('launcher'); }
       }
       if (line.match(/Update available: (\d+) commits behind/i)) {
         const m = line.match(/Update available: (\d+) commits behind/i);
@@ -164,6 +193,85 @@ function spawnPty(lumiversePath) {
   return proc;
 }
 
+// ── BananaBread ───────────────────────────────────────────────────────────────
+
+async function startBananaBread() {
+  const cfg = loadConfig();
+  if (!cfg.bananabreadEnabled) return;
+
+  const bbPath = cfg.bananabreadPath;
+  if (!bbPath || !fs.existsSync(bbPath)) {
+    sendLog({ level: 'error', msg: `❌ [BB] BananaBread folder not found at: ${bbPath} — update the path in Settings.`, raw: '' });
+    sendBBStatus('error');
+    return;
+  }
+
+  if (!isUvAvailable()) {
+    sendLog({ level: 'error', msg: `❌ [BB] uv is not installed. BananaBread requires uv to run. Install it from https://docs.astral.sh/uv/getting-started/installation/ then restart.`, raw: '' });
+    sendBBStatus('error');
+    return;
+  }
+
+  const inUse = await isPortInUse(BANANABREAD_PORT);
+  if (inUse) {
+    sendLog({ level: 'warn', msg: `⚠️ [BB] Port 8008 is occupied. Attempting to free it...`, raw: '' });
+    const pid = getPortPID(BANANABREAD_PORT);
+    if (pid) {
+      killPID(pid);
+      sendLog({ level: 'info', msg: `✓ [BB] Cleared old process (PID ${pid}).`, raw: '' });
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  sendLog({ level: 'info', msg: `🍌 Starting BananaBread...`, raw: '' });
+  sendBBStatus('starting');
+
+  bbProcess = spawn('uv', ['run', 'bananabread-emb'], {
+    cwd: bbPath,
+    shell: true,
+    env: process.env,
+  });
+
+  const handleData = (data) => {
+    const lines = data.toString().split(/\r?\n/).filter(l => l.trim());
+    for (const line of lines) {
+      if (isBBStopping || isQuitting) continue;
+      const parsed = parseBBLog(line);
+      sendLog(parsed);
+      if (parsed.level === 'success') { isBBRunning = true; sendBBStatus('running'); }
+      if (parsed.level === 'error')   { sendBBStatus('error'); }
+    }
+  };
+
+  bbProcess.stdout.on('data', handleData);
+  bbProcess.stderr.on('data', handleData);
+
+  bbProcess.on('close', (code) => {
+    bbProcess = null;
+    isBBRunning = false;
+    if (!isQuitting && !isBBStopping) {
+      sendLog({ level: code === 0 ? 'info' : 'error',
+        msg: code === 0 ? '⏹ BananaBread stopped.' : `❌ BananaBread exited unexpectedly (code ${code}).`, raw: '' });
+      sendBBStatus('stopped');
+    }
+    isBBStopping = false;
+  });
+}
+
+function stopBananaBread() {
+  isBBStopping = true;
+  if (bbProcess) {
+    sendLog({ level: 'info', msg: '⏹ Stopping BananaBread...', raw: '' });
+    try { bbProcess.kill(); } catch {}
+    bbProcess = null;
+  }
+  const pid = getPortPID(BANANABREAD_PORT);
+  if (pid) killPID(pid);
+  isBBRunning = false;
+  sendBBStatus('stopped');
+  setTimeout(() => { isBBStopping = false; }, 2000);
+}
+
 // ── Start / Stop / Restart ────────────────────────────────────────────────────
 
 async function startLumiverse() {
@@ -176,7 +284,9 @@ async function startLumiverse() {
     return;
   }
 
-  // first time? switch to terminal mode so setup wizard works
+  // start BananaBread first if enabled (non-blocking)
+  if (cfg.bananabreadEnabled) startBananaBread();
+
   if (!isSetupComplete()) {
     sendMode('terminal');
     sendStatus('starting');
@@ -184,7 +294,6 @@ async function startLumiverse() {
     return;
   }
 
-  // normal launch — check port first
   sendLog({ level: 'info', msg: '🔍 Checking port 7860...', raw: '' });
   const inUse = await isPortInUse(LUMIVERSE_PORT);
   if (inUse) {
@@ -225,16 +334,14 @@ function stopLumiverse() {
   isRunning = false;
   sendStatus('stopped');
   updateTray('stopped');
+  if (bbProcess) stopBananaBread();
   setTimeout(() => { isStopping = false; }, 2000);
 }
 
 async function restartLumiverse() {
   sendLog({ level: 'info', msg: '↺ Restarting Lumiverse...', raw: '' });
   isStopping = true;
-  if (ptyProcess) {
-    try { ptyProcess.kill(); } catch {}
-    ptyProcess = null;
-  }
+  if (ptyProcess) { try { ptyProcess.kill(); } catch {} ptyProcess = null; }
   const pid = getPortPID(LUMIVERSE_PORT);
   if (pid) killPID(pid);
   isRunning = false;
@@ -264,7 +371,7 @@ async function updateLumiverse(branch) {
   sendUpdate({ type: 'lumiverse', status: 'updating' });
   try { await runGitCommand(['--version'], cwd); }
   catch {
-    sendLog({ level: 'error', msg: `❌ Git not found. Install Git for Windows from git-scm.com and try again.`, raw: '' });
+    sendLog({ level: 'error', msg: `❌ Git not found. Install Git from git-scm.com and try again.`, raw: '' });
     sendUpdate({ type: 'lumiverse', status: 'error' }); return;
   }
   try {
@@ -279,7 +386,7 @@ async function updateLumiverse(branch) {
     if (pullOut.includes('Already up to date')) {
       sendLog({ level: 'info', msg: `✓ Already up to date on ${branch}.`, raw: '' });
     } else {
-      sendLog({ level: 'success', msg: `✅ Lumiverse updated to latest ${branch}! Restart Lumiverse to apply.`, raw: '' });
+      sendLog({ level: 'success', msg: `✅ Lumiverse updated to latest ${branch}! Restart to apply.`, raw: '' });
     }
     sendUpdate({ type: 'lumiverse', status: 'done' });
   } catch (e) {
@@ -308,44 +415,37 @@ function checkForLauncherUpdate() {
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
 
-function sendLog(entry)       { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('log', entry); }
-function sendStatus(status)   { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('status', status); }
-function sendUpdate(payload)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-status', payload); }
-function sendTermData(data)   { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('term-data', data); }
-function sendMode(mode)       { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mode', mode); }
+function sendLog(entry)      { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('log', entry); }
+function sendStatus(status)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('status', status); }
+function sendBBStatus(status){ if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bb-status', status); }
+function sendUpdate(payload) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-status', payload); }
+function sendTermData(data)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('term-data', data); }
+function sendMode(mode)      { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mode', mode); }
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.on('start',                  ()          => startLumiverse());
-ipcMain.on('stop',                   ()          => stopLumiverse());
-ipcMain.on('restart',                ()          => restartLumiverse());
-ipcMain.on('open-browser',           ()          => shell.openExternal(`http://localhost:${LUMIVERSE_PORT}`));
-ipcMain.on('clear-logs',             ()          => { if (mainWindow) mainWindow.webContents.send('clear-logs'); });
-ipcMain.handle('get-config',         ()          => loadConfig());
-ipcMain.on('save-config',            (_, cfg)    => saveConfig(cfg));
-ipcMain.handle('is-running',         ()          => isRunning);
-ipcMain.handle('is-setup-complete',  ()          => isSetupComplete());
-ipcMain.on('window-minimize',        ()          => mainWindow?.minimize());
-ipcMain.on('window-hide',            ()          => mainWindow?.hide());
-ipcMain.on('update-lumiverse',       (_, branch) => updateLumiverse(branch));
-ipcMain.on('check-launcher-update',  ()          => checkForLauncherUpdate());
-ipcMain.on('install-launcher-update',()          => autoUpdater.quitAndInstall(false, true));
-
-// terminal input from xterm.js → pty
-ipcMain.on('term-input', (_, data) => {
-  if (ptyProcess) { try { ptyProcess.write(data); } catch {} }
-});
-
-// terminal resize
-ipcMain.on('term-resize', (_, { cols, rows }) => {
-  if (ptyProcess) { try { ptyProcess.resize(cols, rows); } catch {} }
-});
-
-// reset setup flag (for testing / re-running wizard)
-ipcMain.on('reset-setup', () => {
-  try { fs.unlinkSync(SETUP_DONE_PATH); } catch {}
-  sendMode('terminal');
-});
+ipcMain.on('start',                   ()          => startLumiverse());
+ipcMain.on('stop',                    ()          => stopLumiverse());
+ipcMain.on('restart',                 ()          => restartLumiverse());
+ipcMain.on('start-bb',                ()          => startBananaBread());
+ipcMain.on('stop-bb',                 ()          => stopBananaBread());
+ipcMain.on('open-browser',            ()          => shell.openExternal(`http://localhost:${LUMIVERSE_PORT}`));
+ipcMain.on('open-bb-browser',         ()          => shell.openExternal(`http://localhost:${BANANABREAD_PORT}/docs`));
+ipcMain.on('clear-logs',              ()          => { if (mainWindow) mainWindow.webContents.send('clear-logs'); });
+ipcMain.handle('get-config',          ()          => loadConfig());
+ipcMain.on('save-config',             (_, cfg)    => saveConfig(cfg));
+ipcMain.handle('is-running',          ()          => isRunning);
+ipcMain.handle('is-bb-running',       ()          => isBBRunning);
+ipcMain.handle('is-setup-complete',   ()          => isSetupComplete());
+ipcMain.on('window-minimize',         ()          => mainWindow?.minimize());
+ipcMain.on('window-hide',             ()          => mainWindow?.hide());
+ipcMain.on('update-lumiverse',        (_, branch) => updateLumiverse(branch));
+ipcMain.on('check-launcher-update',   ()          => checkForLauncherUpdate());
+ipcMain.on('install-launcher-update', ()          => autoUpdater.quitAndInstall(false, true));
+ipcMain.handle('get-version', () => app.getVersion());
+ipcMain.on('term-input',  (_, data)         => { if (ptyProcess) { try { ptyProcess.write(data); } catch {} } });
+ipcMain.on('term-resize', (_, { cols, rows })=> { if (ptyProcess) { try { ptyProcess.resize(cols, rows); } catch {} } });
+ipcMain.on('reset-setup', () => { try { fs.unlinkSync(SETUP_DONE_PATH); } catch {} sendMode('terminal'); });
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
 
@@ -363,11 +463,12 @@ function createTray() {
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Open LumiLauncher',        click: () => { mainWindow?.show(); mainWindow?.focus(); } },
     { label: 'Open Lumiverse in Browser', click: () => shell.openExternal(`http://localhost:${LUMIVERSE_PORT}`) },
+    { label: 'Open BananaBread Docs',     click: () => shell.openExternal(`http://localhost:${BANANABREAD_PORT}/docs`) },
     { type: 'separator' },
     { label: 'Start Lumiverse',  click: () => startLumiverse() },
     { label: 'Stop Lumiverse',   click: () => stopLumiverse() },
     { type: 'separator' },
-    { label: 'Quit LumiLauncher', click: () => { isQuitting = true; stopLumiverse(); app.quit(); } },
+    { label: 'Quit LumiLauncher', click: () => { isQuitting = true; stopLumiverse(); stopBananaBread(); app.quit(); } },
   ]);
   tray.setContextMenu(contextMenu);
   tray.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
@@ -377,8 +478,8 @@ function createTray() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 680, height: 580,
-    minWidth: 520, minHeight: 440,
+    width: 680, height: 620,
+    minWidth: 520, minHeight: 480,
     frame: false, transparent: false,
     backgroundColor: '#0d0d14',
     webPreferences: {
@@ -402,4 +503,4 @@ app.whenReady().then(() => {
   setTimeout(() => checkForLauncherUpdate(), 5000);
 });
 app.on('window-all-closed', (e) => e.preventDefault());
-app.on('before-quit', () => { isQuitting = true; stopLumiverse(); });
+app.on('before-quit', () => { isQuitting = true; stopLumiverse(); stopBananaBread(); });

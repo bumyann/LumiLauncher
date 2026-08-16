@@ -146,7 +146,7 @@
 <div id="titlebar">
   <div class="title-left">
     <span class="title-logo">LUMI<span>LAUNCHER</span></span>
-    <span class="title-version">v1.0.0</span>
+    <span class="title-version">v...</span>
   </div>
   <div class="title-controls">
     <button class="title-btn min"   onclick="window.lumi.minimize()"></button>
@@ -158,6 +158,10 @@
 <div id="statusbar">
   <div id="status-dot" class="stopped"></div>
   <span id="status-text">Lumiverse is not running.</span>
+  <div id="bb-status-wrap" style="display:none; align-items:center; gap:6px; margin-left:12px; padding-left:12px; border-left:1px solid var(--border);">
+    <div id="bb-status-dot" class="stopped"></div>
+    <span style="font-size:11px; color:var(--text-mute)">BananaBread</span>
+  </div>
 </div>
 
 <!-- Tabs -->
@@ -176,6 +180,7 @@
     <button class="btn danger"  id="btn-stop"    onclick="handleStop()"    disabled><span>■</span> Stop</button>
     <button class="btn"         id="btn-restart" onclick="handleRestart()" disabled><span>↺</span> Restart</button>
     <button class="btn"         id="btn-settings" onclick="openSettings()"><span>⚙</span> Settings</button>
+    <button class="btn"         id="btn-open-bb"  onclick="window.lumi.openBBBrowser()" disabled style="border-color:#3a5a2a; color:#9bbf7b"><span>🍌</span> BB Docs</button>
     <button class="btn"         id="btn-open"    onclick="window.lumi.openBrowser()" disabled style="margin-left:auto"><span>↗</span> Open in browser</button>
   </div>
   <div id="log-header">
@@ -239,7 +244,7 @@
     <div class="settings-title">⚙ Settings</div>
     <div class="field">
       <label>Lumiverse installation path</label>
-      <input type="text" id="input-path" placeholder="C:\Users\you\Lumiverse"/>
+      <input type="text" id="input-path" placeholder="Path to your Lumiverse folder"/>
     </div>
     <div class="field">
       <label>Default branch</label>
@@ -247,6 +252,16 @@
         <option value="staging">staging</option>
         <option value="main">main</option>
       </select>
+    </div>
+    <hr class="settings-divider"/>
+    <div class="settings-danger-label">BananaBread</div>
+    <div class="field">
+      <label>BananaBread folder path</label>
+      <input type="text" id="input-bb-path" placeholder="Path to your BananaBread folder"/>
+    </div>
+    <div class="field" style="flex-direction:row; align-items:center; gap:8px;">
+      <input type="checkbox" id="input-bb-enabled" style="width:auto; padding:0"/>
+      <label for="input-bb-enabled" style="margin:0">Launch BananaBread automatically with Lumiverse</label>
     </div>
     <hr class="settings-divider"/>
     <div class="settings-danger-label">Danger zone</div>
@@ -424,18 +439,23 @@
   // ── Settings ──
   async function openSettings() {
     const cfg = await window.lumi.getConfig();
-    document.getElementById('input-path').value   = cfg.lumiversePath   || '';
-    document.getElementById('input-branch').value = cfg.lumiverseBranch || 'staging';
+    document.getElementById('input-path').value       = cfg.lumiversePath      || '';
+    document.getElementById('input-branch').value     = cfg.lumiverseBranch    || 'staging';
+    document.getElementById('input-bb-path').value    = cfg.bananabreadPath    || '';
+    document.getElementById('input-bb-enabled').checked = cfg.bananabreadEnabled || false;
     document.getElementById('settings-overlay').classList.add('open');
   }
   function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
   function saveSettings() {
-    const p = document.getElementById('input-path').value.trim();
-    const b = document.getElementById('input-branch').value;
-    if (p) window.lumi.saveConfig({ lumiversePath: p, lumiverseBranch: b });
+    const p      = document.getElementById('input-path').value.trim();
+    const b      = document.getElementById('input-branch').value;
+    const bbPath = document.getElementById('input-bb-path').value.trim();
+    const bbOn   = document.getElementById('input-bb-enabled').checked;
+    if (p) window.lumi.saveConfig({ lumiversePath: p, lumiverseBranch: b, bananabreadPath: bbPath, bananabreadEnabled: bbOn });
     document.getElementById('branch-select').value = b;
+    document.getElementById('bb-status-wrap').style.display = bbOn ? 'flex' : 'none';
     closeSettings();
-    addLog({ level: 'info', msg: '✓ Settings saved.' });
+    addLog({ level: 'info', msg: `✓ Settings saved.${bbOn ? ' BananaBread will launch with Lumiverse.' : ''}` });
   }
   function resetSetup() {
     closeSettings();
@@ -446,20 +466,34 @@
   // ── IPC listeners ──
   window.lumi.onLog(addLog);
   window.lumi.onStatus(setStatus);
+  window.lumi.onBBStatus(setBBStatus);
   window.lumi.onClearLogs(() => { logEl.innerHTML = ''; });
   window.lumi.onUpdateStatus(handleUpdateStatus);
   window.lumi.onTermData(data => term.write(data));
   window.lumi.onMode(mode => setMode(mode));
 
+  // ── BB status ──
+  const bbDot  = document.getElementById('bb-status-dot');
+  const bbWrap = document.getElementById('bb-status-wrap');
+  const btnBBDocs = document.getElementById('btn-open-bb');
+
+  function setBBStatus(s) {
+    bbDot.className = s;
+    btnBBDocs.disabled = s !== 'running';
+  }
+
   // ── Init ──
   (async () => {
-    const [running, setupDone, cfg] = await Promise.all([
+    const [running, bbRunning, setupDone, cfg] = await Promise.all([
       window.lumi.isRunning(),
+      window.lumi.isBBRunning(),
       window.lumi.isSetupComplete(),
       window.lumi.getConfig(),
     ]);
+    document.querySelector('.title-version').textContent = `v${await window.lumi.getVersion()}`;
     setStatus(running ? 'running' : 'stopped');
     if (cfg.lumiverseBranch) document.getElementById('branch-select').value = cfg.lumiverseBranch;
+    if (cfg.bananabreadEnabled) { bbWrap.style.display = 'flex'; setBBStatus(bbRunning ? 'running' : 'stopped'); }
     if (!setupDone) {
       addLog({ level: 'warn', msg: '⚠️ First-time setup detected. Click Launch — the terminal tab will open for setup.' });
     }

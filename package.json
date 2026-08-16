@@ -1,6 +1,6 @@
 {
   "name": "lumilauncher",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "A launcher for Lumiverse with human-readable error handling",
   "main": "main.js",
   "scripts": {
@@ -12,26 +12,18 @@
     "appId": "com.bumyann.lumilauncher",
     "productName": "LumiLauncher",
     "win": {
-  "target": "nsis",
-  "icon": "assets/icon.ico"
-},
-"mac": {
-  "icon": "assets/icon.icns"
-},
-"linux": {
-  "target": "AppImage",
-  "icon": "assets/icon.png"
-},
-"icon": "assets/icon.ico",
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "icon": "assets/icon.ico",
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
     "publish": {
-  "provider": "github",
-  "owner": "bumyann",
-  "repo": "LumiLauncher",
-  "releaseType": "release"
+      "provider": "github",
+      "owner": "bumyann",
+      "repo": "LumiLauncher"
     },
     "files": [
       "**/*",
@@ -42,11 +34,11 @@
   "author": "bumyann",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^43.3.0",
-    "electron-builder": "^26.15.3"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.0.0"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
-    "node-pty": "^1.1.0"
+    "electron-updater": "^6.1.0",
+    "node-pty": "^1.0.0"
   }
 }

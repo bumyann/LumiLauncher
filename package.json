@@ -6,16 +6,23 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --publish never",
-    "release": "electron-builder --win --publish always"
+    "release": "electron-builder --win --mac --linux --publish always"
   },
   "build": {
     "appId": "com.bumyann.lumilauncher",
     "productName": "LumiLauncher",
+    "icon": "assets/icon.ico",
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico"
     },
-    "icon": "assets/icon.ico",
+    "mac": {
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
@@ -23,7 +30,8 @@
     "publish": {
       "provider": "github",
       "owner": "bumyann",
-      "repo": "LumiLauncher"
+      "repo": "LumiLauncher",
+      "releaseType": "release"
     },
     "files": [
       "**/*",
@@ -34,11 +42,11 @@
   "author": "bumyann",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "electron-updater": "^6.1.0",
-    "node-pty": "^1.0.0"
+    "electron-updater": "^6.8.9",
+    "node-pty": "^1.1.0"
   }
 }

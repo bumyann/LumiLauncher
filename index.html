@@ -534,8 +534,8 @@
   }
 
   function installVersion(version, url) {
-    if (!confirm(\`Install LumiLauncher v\${version}? The app will restart after downloading.\`)) return;
-    addLog({ level: 'info', msg: \`↓ Installing v\${version}...\` });
+    if (!confirm('Install LumiLauncher v' + version + '? The app will restart after downloading.')) return;
+    addLog({ level: 'info', msg: '↓ Installing v' + version + '...' });
     switchTab('console');
     window.lumi.installVersion(version, url);
   }

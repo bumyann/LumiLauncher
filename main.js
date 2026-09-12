@@ -785,7 +785,6 @@ function createWindow() {
     icon: path.join(__dirname, 'assets', 'icon.ico'),
   });
   mainWindow.loadFile('index.html');
-  mainWindow.webContents.openDevTools();
   mainWindow.on('close', (e) => { if (!isQuitting) { e.preventDefault(); mainWindow.hide(); } });
 }
 

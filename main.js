@@ -1,4 +1,8 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage } = require('electron');
+const http = require('http');
+const https = require('https');
+const os = require('os');
+const { WebSocketServer } = require('ws');
 const { autoUpdater } = require('electron-updater');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
@@ -11,6 +15,10 @@ const CONFIG_PATH      = path.join(app.getPath('userData'), 'config.json');
 const SETUP_DONE_PATH  = path.join(app.getPath('userData'), 'setup_complete');
 
 let mainWindow      = null;
+let remoteServer    = null;
+let wss             = null;
+let remotePort      = 7861;
+let remoteClients   = new Set();
 let tray            = null;
 let ptyProcess      = null;
 let bbProcess       = null;   // BananaBread child process
@@ -31,6 +39,8 @@ function loadConfig() {
     lumiverseBranch:  'staging',
     bananabreadPath:  '',
     bananabreadEnabled: false,
+    autoRestart: false,
+    remoteEnabled: false,
   };
 }
 
@@ -182,10 +192,17 @@ function spawnPty(lumiversePath) {
     ptyProcess = null;
     isRunning = false;
     if (!isQuitting && !isStopping) {
-      sendLog({ level: exitCode === 0 ? 'info' : 'error',
-        msg: exitCode === 0 ? '⏹ Lumiverse stopped.' : `❌ Lumiverse exited unexpectedly (code ${exitCode}).`, raw: '' });
-      sendStatus('stopped');
-      updateTray('stopped');
+      const cfg = loadConfig();
+      if (exitCode !== 0 && cfg.autoRestart) {
+        sendLog({ level: 'warn', msg: `⚠️ Lumiverse crashed (code ${exitCode}). Auto-restarting in 5 seconds...`, raw: '' });
+        sendStatus('starting');
+        setTimeout(() => { if (!isQuitting) startLumiverse(); }, 5000);
+      } else {
+        sendLog({ level: exitCode === 0 ? 'info' : 'error',
+          msg: exitCode === 0 ? '⏹ Lumiverse stopped.' : `❌ Lumiverse exited unexpectedly (code ${exitCode}).`, raw: '' });
+        sendStatus('stopped');
+        updateTray('stopped');
+      }
     }
     isStopping = false;
   });
@@ -413,16 +430,292 @@ function checkForLauncherUpdate() {
   else { sendUpdate({ type: 'launcher', status: 'up-to-date' }); }
 }
 
+// ── Remote dashboard ─────────────────────────────────────────────────────────
+
+const MOBILE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>LumiLauncher Remote</title>
+<style>
+  :root {
+    --bg: #0d0d14; --bg2: #13131f; --bg3: #1a1a2e;
+    --border: #2a2a45; --accent: #9896bb; --accent2: #5d6da5; --accent3: #344979;
+    --pink: #c084b0; --text: #d4d4e8; --text-dim: #7070a0; --text-mute: #404060;
+    --success: #7bbf8a; --warn: #c9a96e; --error: #c97070; --info: #7aa8d0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 16px; }
+  h1 { font-size: 18px; color: var(--accent); margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: var(--text-mute); margin-bottom: 16px; }
+  .status-bar { display: flex; align-items: center; gap: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-mute); flex-shrink: 0; transition: background .3s; }
+  .dot.running { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .dot.starting { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.error { background: var(--error); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+  .status-label { font-size: 13px; color: var(--text-dim); flex: 1; }
+  .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--error); }
+  .ws-dot.connected { background: var(--success); }
+  .ws-label { font-size: 10px; color: var(--text-mute); }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .btn { padding: 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); font-size: 14px; font-weight: 500; cursor: pointer; text-align: center; transition: all .15s; -webkit-tap-highlight-color: transparent; }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: var(--accent3); border-color: var(--accent2); color: #fff; }
+  .btn.danger { border-color: #5a3a3a; color: var(--error); }
+  .btn.full { grid-column: 1 / -1; }
+  .btn:disabled { opacity: .35; pointer-events: none; }
+  .log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .log-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-mute); font-weight: 600; }
+  .clear-btn { font-size: 10px; padding: 2px 8px; background: none; border: 1px solid var(--border); color: var(--text-mute); border-radius: 3px; cursor: pointer; }
+  #log { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; height: 280px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; display: flex; flex-direction: column; gap: 1px; }
+  .log-line { display: flex; gap: 6px; }
+  .log-time { color: var(--text-mute); flex-shrink: 0; }
+  .log-msg { flex: 1; word-break: break-word; }
+  .log-line.success .log-msg { color: var(--success); }
+  .log-line.error .log-msg { color: var(--error); }
+  .log-line.warn .log-msg { color: var(--warn); }
+  .log-line.info .log-msg { color: var(--info); }
+  .log-line.raw .log-msg { color: var(--text-mute); }
+  .section { margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>🌙 LumiLauncher</h1>
+<p class="subtitle">Remote Control</p>
+
+<div class="section">
+  <div class="status-bar">
+    <div class="dot" id="lumi-dot"></div>
+    <span class="status-label" id="lumi-status">Connecting...</span>
+    <div class="ws-dot" id="ws-dot"></div>
+    <span class="ws-label" id="ws-label">ws</span>
+  </div>
+</div>
+
+<div class="controls section">
+  <button class="btn primary" id="btn-start" onclick="send('start')">▶ Launch</button>
+  <button class="btn danger"  id="btn-stop"  onclick="send('stop')">■ Stop</button>
+  <button class="btn full"    id="btn-restart" onclick="send('restart')">↺ Restart</button>
+  <button class="btn full"    id="btn-browser" onclick="openLumi()">↗ Open Lumiverse in Browser</button>
+</div>
+
+<div class="log-header">
+  <span class="log-label">Live Log</span>
+  <button class="clear-btn" onclick="clearLog()">clear</button>
+</div>
+<div id="log"></div>
+
+<script>
+  const logEl = document.getElementById('log');
+  const lumiDot = document.getElementById('lumi-dot');
+  const lumiStatus = document.getElementById('lumi-status');
+  const wsDot = document.getElementById('ws-dot');
+  const wsLabel = document.getElementById('ws-label');
+  const btnStart = document.getElementById('btn-start');
+  const btnStop = document.getElementById('btn-stop');
+  const btnRestart = document.getElementById('btn-restart');
+
+  const STATUS_LABELS = {
+    stopped: 'Lumiverse is not running.',
+    starting: 'Starting Lumiverse...',
+    running: 'Lumiverse is running.',
+    error: 'Something went wrong.',
+  };
+
+  let ws;
+  function connect() {
+    ws = new WebSocket('ws://' + location.host);
+    ws.onopen = () => { wsDot.className = 'ws-dot connected'; wsLabel.textContent = 'live'; };
+    ws.onclose = () => { wsDot.className = 'ws-dot'; wsLabel.textContent = 'disconnected'; setTimeout(connect, 3000); };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'status') setStatus(msg.data);
+      if (msg.type === 'log') addLog(msg.data);
+      if (msg.type === 'init') { setStatus(msg.status); msg.logs.forEach(addLog); }
+    };
+  }
+  connect();
+
+  function send(action) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action })); }
+  function openLumi() { window.open('http://' + location.hostname + ':7860', '_blank'); }
+  function clearLog() { logEl.innerHTML = ''; }
+
+  function setStatus(s) {
+    lumiDot.className = 'dot ' + s;
+    lumiStatus.textContent = STATUS_LABELS[s] || s;
+    btnStart.disabled   = s === 'starting' || s === 'running';
+    btnStop.disabled    = s === 'stopped'  || s === 'error';
+    btnRestart.disabled = s === 'stopped'  || s === 'error' || s === 'starting';
+  }
+
+  function addLog(entry) {
+    const now = new Date();
+    const ts = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2,'0')).join(':');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + entry.level;
+    line.innerHTML = '<span class="log-time">' + ts + '</span><span class="log-msg">' + esc(entry.msg) + '</span>';
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  setStatus('stopped');
+</script>
+</body>
+</html>`;
+
+let recentLogs = [];
+
+function broadcastToRemote(msg) {
+  const data = JSON.stringify(msg);
+  for (const client of remoteClients) {
+    try { if (client.readyState === 1) client.send(data); } catch {}
+  }
+}
+
+function startRemoteServer() {
+  const cfg = loadConfig();
+  if (!cfg.remoteEnabled) return;
+
+  remoteServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(MOBILE_HTML);
+  });
+
+  wss = new WebSocketServer({ server: remoteServer });
+
+  wss.on('connection', (ws) => {
+    remoteClients.add(ws);
+    // send current state + recent logs
+    ws.send(JSON.stringify({ type: 'init', status: isRunning ? 'running' : 'stopped', logs: recentLogs.slice(-50) }));
+
+    ws.on('message', (raw) => {
+      try {
+        const { action } = JSON.parse(raw.toString());
+        if (action === 'start')   startLumiverse();
+        if (action === 'stop')    stopLumiverse();
+        if (action === 'restart') restartLumiverse();
+      } catch {}
+    });
+
+    ws.on('close', () => remoteClients.delete(ws));
+    ws.on('error', () => remoteClients.delete(ws));
+  });
+
+  remoteServer.listen(remotePort, '0.0.0.0', () => {
+    sendLog({ level: 'info', msg: `📱 Remote dashboard available at http://YOUR-TAILSCALE-IP:${remotePort}`, raw: '' });
+  });
+}
+
+function stopRemoteServer() {
+  for (const client of remoteClients) { try { client.close(); } catch {} }
+  remoteClients.clear();
+  if (wss) { wss.close(); wss = null; }
+  if (remoteServer) { remoteServer.close(); remoteServer = null; }
+}
+
 // ── IPC helpers ───────────────────────────────────────────────────────────────
 
-function sendLog(entry)      { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('log', entry); }
-function sendStatus(status)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('status', status); }
+function sendLog(entry) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('log', entry);
+  recentLogs.push(entry);
+  if (recentLogs.length > 200) recentLogs.shift();
+  broadcastToRemote({ type: 'log', data: entry });
+}
+function sendStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('status', status);
+  broadcastToRemote({ type: 'status', data: status });
+}
 function sendBBStatus(status){ if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bb-status', status); }
 function sendUpdate(payload) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-status', payload); }
 function sendTermData(data)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('term-data', data); }
 function sendMode(mode)      { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mode', mode); }
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
+
+// ── Version management ───────────────────────────────────────────────────────
+
+function fetchGithubReleases() {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/bumyann/LumiLauncher/releases',
+      headers: { 'User-Agent': 'LumiLauncher' },
+    };
+    https.get(options, (res) => {
+      let data = '';
+      res.on('data', d => { data += d; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { reject(new Error('Failed to parse releases')); }
+      });
+    }).on('error', reject);
+  });
+}
+
+async function downloadAndInstallVersion(version, assetUrl) {
+  const ext      = process.platform === 'win32' ? '.exe' : process.platform === 'darwin' ? '.dmg' : '.AppImage';
+  const tmpPath  = path.join(os.tmpdir(), `LumiLauncher-${version}${ext}`);
+
+  sendLog({ level: 'info', msg: `📥 Downloading LumiLauncher v${version}...`, raw: '' });
+  sendUpdate({ type: 'downgrade', status: 'downloading', version });
+
+  await new Promise((resolve, reject) => {
+    const file = require('fs').createWriteStream(tmpPath);
+    https.get(assetUrl, { headers: { 'User-Agent': 'LumiLauncher' } }, (res) => {
+      // follow redirects
+      if (res.statusCode === 302 || res.statusCode === 301) {
+        https.get(res.headers.location, { headers: { 'User-Agent': 'LumiLauncher' } }, (res2) => {
+          res2.pipe(file);
+          file.on('finish', () => { file.close(); resolve(); });
+        }).on('error', reject);
+      } else {
+        res.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+      }
+    }).on('error', reject);
+  });
+
+  sendLog({ level: 'success', msg: `✅ Downloaded v${version}. Launching installer...`, raw: '' });
+  sendUpdate({ type: 'downgrade', status: 'installing', version });
+
+  if (process.platform === 'win32') {
+    spawn(tmpPath, [], { detached: true, shell: true });
+  } else if (process.platform === 'darwin') {
+    spawn('open', [tmpPath], { detached: true });
+  } else {
+    spawn('chmod', ['+x', tmpPath], { shell: true }).on('close', () => {
+      spawn(tmpPath, [], { detached: true, shell: true });
+    });
+  }
+
+  setTimeout(() => { isQuitting = true; stopLumiverse(); stopBananaBread(); stopRemoteServer(); app.quit(); }, 2000);
+}
+
+ipcMain.handle('fetch-releases', async () => {
+  try {
+    const releases = await fetchGithubReleases();
+    const current = app.getVersion();
+    return releases
+      .filter(r => !r.draft && !r.prerelease)
+      .map(r => ({
+        version: r.tag_name.replace(/^v/, ''),
+        tag: r.tag_name,
+        name: r.name,
+        date: r.published_at,
+        isCurrent: r.tag_name.replace(/^v/, '') === current,
+        assets: r.assets.map(a => ({ name: a.name, url: a.browser_download_url })),
+      }));
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.on('install-version', (_, { version, assetUrl }) => {
+  downloadAndInstallVersion(version, assetUrl);
+});
 
 ipcMain.on('start',                   ()          => startLumiverse());
 ipcMain.on('stop',                    ()          => stopLumiverse());
@@ -443,6 +736,8 @@ ipcMain.on('update-lumiverse',        (_, branch) => updateLumiverse(branch));
 ipcMain.on('check-launcher-update',   ()          => checkForLauncherUpdate());
 ipcMain.on('install-launcher-update', ()          => autoUpdater.quitAndInstall(false, true));
 ipcMain.handle('get-version', () => app.getVersion());
+ipcMain.on('start-remote',  () => startRemoteServer());
+ipcMain.on('stop-remote',   () => stopRemoteServer());
 ipcMain.on('term-input',  (_, data)         => { if (ptyProcess) { try { ptyProcess.write(data); } catch {} } });
 ipcMain.on('term-resize', (_, { cols, rows })=> { if (ptyProcess) { try { ptyProcess.resize(cols, rows); } catch {} } });
 ipcMain.on('reset-setup', () => { try { fs.unlinkSync(SETUP_DONE_PATH); } catch {} sendMode('terminal'); });
@@ -501,6 +796,8 @@ app.whenReady().then(() => {
   createTray();
   setupAutoUpdater();
   setTimeout(() => checkForLauncherUpdate(), 5000);
+  const _cfg = loadConfig();
+  if (_cfg.remoteEnabled) startRemoteServer();
 });
 app.on('window-all-closed', (e) => e.preventDefault());
-app.on('before-quit', () => { isQuitting = true; stopLumiverse(); stopBananaBread(); });
+app.on('before-quit', () => { isQuitting = true; stopLumiverse(); stopBananaBread(); stopRemoteServer(); });

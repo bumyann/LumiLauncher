@@ -1,88 +1,67 @@
 # LumiLauncher
 
-<img src="https://files.catbox.moe/m4ofo3.png" alt="LumiLauncher">
+A simple launcher for [Lumiverse](https://lumiverse.chat) — no terminal required.
 
-A launcher for [Lumiverse](https://lumiverse.chat) because I'm a lazy bastard that hates even the smallest inconvenience, and opening PowerShell every time is not it.
-
-Double-click, it starts. That's the pitch.
-
----
-
-## What It Does
-
-- Starts and stops Lumiverse without touching a terminal
-- Kills leftover port conflicts automatically so you don't have to
-- Tells you what went wrong in plain English instead of exit codes
-- Has a built-in terminal for first-time setup (passwords, account creation, etc.)
-- Pulls Lumiverse updates from inside the app (main or staging branch) — Lumiverse also has its own updater in the web UI, this is just for convenience!
-- Checks for LumiLauncher updates automatically. Updates to the latest version without needing to download a new file.
-- Lives in the system tray so you can close the window without killing Lumiverse
+Instead of opening PowerShell every time, just double-click LumiLauncher. It handles starting, stopping, and updating Lumiverse for you, and shows plain-English messages instead of raw error codes.
 
 ---
 
 ## Download
 
-Grab the installer for your platform from the [Releases](https://github.com/bumyann/LumiLauncher/releases) page.
-
-| Platform | File |
-|---|---|
-| Windows | `LumiLauncher-Setup-x.x.x.exe` |
-| macOS | `LumiLauncher-x.x.x.dmg` |
-| Linux | `LumiLauncher-x.x.x.AppImage` |
+Grab the latest `.exe` installer from the [Releases](https://github.com/bumyann/LumiLauncher/releases) page. Install it, open it, done.
 
 ---
 
 ## Requirements
 
-- [Lumiverse](https://lumiverse.chat/guides/getting-started/installation/) already installed on your machine
-- [Git](https://git-scm.com/downloads) if you want to use the in-app Lumiverse update feature
+- Windows 10 or 11
+- [Lumiverse](https://lumiverse.chat/guides/getting-started/installation/) already cloned/installed on your machine
+- [Git for Windows](https://git-scm.com/download/win) — only needed if you want to pull Lumiverse updates from inside the launcher
 
 ---
 
-## First-Time Setup
+## First-time setup
 
-If you've never run Lumiverse before, click Launch and it'll automatically open a terminal tab where you can go through the setup wizard — type your password, create your account, all that. After that it won't bother you again.
+If you've never run Lumiverse before, LumiLauncher will automatically open a terminal tab when you click Launch. Just follow the prompts — type your password, create your account, and let it finish. After that, every launch is one click.
 
-If Lumiverse is already set up, it just starts normally.
-
----
-
-## First Launch Checklist
-
-1. Install LumiLauncher for your platform
-2. Open LumiLauncher
-3. Go to **⚙ Settings** → set your Lumiverse folder path (e.g. `C:\Users\you\Lumiverse`)
-4. Click Launch
+If Lumiverse is already set up, it'll just start normally.
 
 ---
 
-## Security
+## Features
 
-Built with `nodeIntegration: false` and `contextIsolation: true`. 
-Keep the app updated — self-updates are built in so this should 
-happen automatically as new versions are released.
+- **One-click launch** — starts Lumiverse and clears port conflicts automatically
+- **Human-readable errors** — tells you what went wrong and how to fix it, in plain English
+- **Built-in terminal** — handles first-time setup wizard, passwords, and interactive prompts
+- **Lumiverse updates** — pull the latest commits (main or staging branch) from the Updates tab
+- **Auto-updating** — the launcher updates itself silently in the background
+- **System tray** — minimise to tray to keep Lumiverse running without a window open
+- **Open in browser** button once Lumiverse is running
 
 ---
 
-## Error Messages
+## First launch
 
-| What You See | What It Means |
+1. Install LumiLauncher from the `.exe` installer
+2. Open it and go to **⚙ Settings**
+3. Set your Lumiverse folder path (e.g. `C:\Users\you\Lumiverse`)
+4. Click **Launch**
+
+---
+
+## Error messages explained
+
+| What you see | What it means |
 |---|---|
-| ⚠️ Port 7860 is already in use | Leftover process from a previous run. LumiLauncher kills it and retries automatically. |
-| ❌ Couldn't kill PID — try running as administrator | Windows said no. Right-click LumiLauncher → Run as administrator. |
-| ❌ Lumiverse folder not found | The path in Settings is wrong. Fix it. |
-| 💥 Lumiverse crashed | Something in your config or extensions broke. Check what you changed recently. |
-| 🔔 Update available — N commits behind | Go to the Updates tab and pull. |
-| ❌ Git not found | Install [Git](https://git-scm.com/downloads). |
-
----
-
-## Note
-
-Lumiverse already has an [official desktop tray companion](https://lumiverse.chat/guides/getting-started/desktop-tray/) — but it requires Rust, C++ build tools, and compiling from source. LumiLauncher is for people who just want an installer file.
+| ⚠️ Port 7860 is already in use | A previous Lumiverse process didn't shut down cleanly. LumiLauncher will kill it and retry automatically. |
+| ❌ Couldn't kill PID — try running as administrator | Windows blocked the process kill. Right-click LumiLauncher → Run as administrator. |
+| ❌ Lumiverse folder not found | The path in Settings doesn't exist. Update it to match your install location. |
+| 💥 Lumiverse crashed | An extension or config error caused a crash. Check any extensions you recently changed. |
+| 🔔 Update available — N commits behind | There's a Lumiverse update ready. Go to the Updates tab to pull it. |
+| ❌ Git not found | Install [Git for Windows](https://git-scm.com/download/win) to use the update feature. |
 
 ---
 
 ## License
 
-MIT 
+MIT — made by [bumyann](https://github.com/bumyann)

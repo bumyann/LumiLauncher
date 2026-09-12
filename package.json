@@ -1,6 +1,6 @@
 {
   "name": "lumilauncher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A launcher for Lumiverse with human-readable error handling",
   "main": "main.js",
   "scripts": {
@@ -38,7 +38,10 @@
       "!node_modules/.cache"
     ]
   },
-  "keywords": ["lumiverse", "launcher"],
+  "keywords": [
+    "lumiverse",
+    "launcher"
+  ],
   "author": "bumyann",
   "license": "MIT",
   "devDependencies": {
@@ -47,6 +50,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "ws": "^8.18.0"
   }
 }

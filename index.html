@@ -513,22 +513,22 @@
     list.innerHTML = '';
 
     for (const r of releases) {
-      const platform = process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : 'linux';
+      const platform = window.lumi.platform === 'win32' ? 'win32' : window.lumi.platform === 'darwin' ? 'darwin' : 'linux';
       const extMap = { win32: '.exe', darwin: '.dmg', linux: '.AppImage' };
       const asset = r.assets.find(a => a.name.includes(extMap[platform]));
 
       const item = document.createElement('div');
       item.className = 'version-item';
-      item.innerHTML = \`
+      item.innerHTML = `
         <div class="version-info">
-          <span class="version-tag">v\${r.version} \${r.isCurrent ? '<span class="version-current">current</span>' : ''}</span>
-          <span class="version-date">\${new Date(r.date).toLocaleDateString()}</span>
+          <span class="version-tag">v${r.version} ${r.isCurrent ? '<span class="version-current">current</span>' : ''}</span>
+          <span class="version-date">${new Date(r.date).toLocaleDateString()}</span>
         </div>
-        \${!r.isCurrent && asset
-          ? \`<button class="btn" style="font-size:11px;padding:4px 10px" onclick="installVersion('\${r.version}', '\${asset.url}')">↓ Install</button>\`
+        ${!r.isCurrent && asset
+          ? `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="installVersion('${r.version}', '${asset.url}')">↓ Install</button>`
           : r.isCurrent ? '' : '<span style="font-size:11px;color:var(--text-mute)">no installer</span>'
         }
-      \`;
+      `;
       list.appendChild(item);
     }
   }
@@ -542,8 +542,8 @@
 
   window.lumi.onUpdateStatus((d) => {
     if (d.type === 'downgrade') {
-      if (d.status === 'downloading') addLog({ level: 'info', msg: \`📥 Downloading v\${d.version}...\` });
-      if (d.status === 'installing')  addLog({ level: 'success', msg: \`✅ Installing v\${d.version} — app will close shortly.\` });
+      if (d.status === 'downloading') addLog({ level: 'info', msg: `📥 Downloading v${d.version}...` });
+      if (d.status === 'installing')  addLog({ level: 'success', msg: `✅ Installing v${d.version} — app will close shortly.` });
     }
   });
 

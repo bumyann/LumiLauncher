@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('lumi', {
+  platform:              process.platform,
   start:                 ()       => ipcRenderer.send('start'),
   stop:                  ()       => ipcRenderer.send('stop'),
   restart:               ()       => ipcRenderer.send('restart'),

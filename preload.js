@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('lumi', {
   installVersion:        (v, url)         => ipcRenderer.send('install-version', { version: v, assetUrl: url }),
   startRemote:           ()       => ipcRenderer.send('start-remote'),
   stopRemote:            ()       => ipcRenderer.send('stop-remote'),
+  getRemoteUrl:          ()       => ipcRenderer.invoke('get-remote-url'),
+  regenerateRemoteToken: ()       => ipcRenderer.invoke('regenerate-remote-token'),
   resetSetup:            ()       => ipcRenderer.send('reset-setup'),
   getVersion:             ()       => ipcRenderer.invoke('get-version'),
   minimize:              ()       => ipcRenderer.send('window-minimize'),

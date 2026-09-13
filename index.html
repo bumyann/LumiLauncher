@@ -287,6 +287,10 @@
       <input type="checkbox" id="input-remote-enabled" style="width:auto; padding:0"/>
       <label for="input-remote-enabled" style="margin:0">Enable remote dashboard (port 7861) — access via Tailscale on mobile</label>
     </div>
+    <div class="field" id="remote-link-actions" style="flex-direction:row; gap:8px; display:none;">
+      <button class="btn" style="font-size:11px;padding:4px 10px" onclick="copyRemoteUrl()"><span>⧉</span> Copy remote link</button>
+      <button class="btn danger" style="font-size:11px;padding:4px 10px" onclick="regenerateToken()"><span>↺</span> Regenerate token</button>
+    </div>
     <hr class="settings-divider"/>
     <div class="settings-danger-label">Danger zone</div>
     <div class="field">
@@ -470,6 +474,7 @@
     document.getElementById('input-bb-enabled').checked = cfg.bananabreadEnabled || false;
     document.getElementById('input-auto-restart').checked  = cfg.autoRestart    || false;
     document.getElementById('input-remote-enabled').checked = cfg.remoteEnabled  || false;
+    document.getElementById('remote-link-actions').style.display = cfg.remoteEnabled ? 'flex' : 'none';
     document.getElementById('settings-overlay').classList.add('open');
   }
   function closeSettings() { document.getElementById('settings-overlay').classList.remove('open'); }
@@ -482,7 +487,13 @@
     const remoteEnabled  = document.getElementById('input-remote-enabled').checked;
     if (p) window.lumi.saveConfig({ lumiversePath: p, lumiverseBranch: b, bananabreadPath: bbPath, bananabreadEnabled: bbOn, autoRestart, remoteEnabled });
     if (remoteEnabled) window.lumi.startRemote(); else window.lumi.stopRemote();
-    if (remoteEnabled) addLog({ level: 'info', msg: '📱 Remote dashboard enabled — access via http://YOUR-TAILSCALE-IP:7861' });
+    document.getElementById('remote-link-actions').style.display = remoteEnabled ? 'flex' : 'none';
+    if (remoteEnabled) {
+      setTimeout(async () => {
+        const url = await window.lumi.getRemoteUrl();
+        addLog({ level: 'info', msg: url ? `📱 Remote dashboard: ${url}` : '📱 Remote dashboard enabled.' });
+      }, 300);
+    }
     document.getElementById('branch-select').value = b;
     document.getElementById('bb-status-wrap').style.display = bbOn ? 'flex' : 'none';
     closeSettings();
@@ -492,6 +503,27 @@
     closeSettings();
     window.lumi.resetSetup();
     addLog({ level: 'warn', msg: '↺ Setup flag reset. Next launch will open the setup wizard.' });
+  }
+
+  async function copyRemoteUrl() {
+    const url = await window.lumi.getRemoteUrl();
+    if (!url) { addLog({ level: 'warn', msg: '⚠️ Remote dashboard isn\'t enabled yet.' }); return; }
+    try {
+      await navigator.clipboard.writeText(url);
+      addLog({ level: 'success', msg: '✅ Remote link copied — paste it into your phone\'s browser or save it as a bookmark.' });
+    } catch {
+      addLog({ level: 'info', msg: `📱 Remote link: ${url}` });
+    }
+  }
+
+  async function regenerateToken() {
+    if (!confirm('Regenerate the remote access token? Any previously saved links on your phone will stop working.')) return;
+    const url = await window.lumi.regenerateRemoteToken();
+    addLog({ level: 'warn', msg: '↺ Remote token regenerated — old links no longer work.' });
+    if (url) {
+      try { await navigator.clipboard.writeText(url); addLog({ level: 'success', msg: '✅ New link copied to clipboard.' }); }
+      catch { addLog({ level: 'info', msg: `📱 New remote link: ${url}` }); }
+    }
   }
 
   // ── IPC listeners ──

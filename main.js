@@ -8,6 +8,7 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const crypto = require('crypto');
 
 const LUMIVERSE_PORT   = 7860;
 const BANANABREAD_PORT = 8008;
@@ -41,6 +42,7 @@ function loadConfig() {
     bananabreadEnabled: false,
     autoRestart: false,
     remoteEnabled: false,
+    remoteToken: '',
   };
 }
 
@@ -399,6 +401,11 @@ async function updateLumiverse(branch) {
       sendLog({ level: 'info', msg: `↪ Switching from ${currentBranch} → ${branch}...`, raw: '' });
       await runGitCommand(['checkout', branch], cwd);
     }
+    const statusOut = await runGitCommand(['status', '--porcelain'], cwd);
+    if (statusOut.trim()) {
+      sendLog({ level: 'warn', msg: `⚠️ Local changes found in your Lumiverse folder (likely regenerated build files) — stashing them before updating so the pull doesn't fail. Nothing is deleted.`, raw: '' });
+      await runGitCommand(['stash'], cwd);
+    }
     const pullOut = await runGitCommand(['pull', 'origin', branch], cwd);
     if (pullOut.includes('Already up to date')) {
       sendLog({ level: 'info', msg: `✓ Already up to date on ${branch}.`, raw: '' });
@@ -432,12 +439,20 @@ function checkForLauncherUpdate() {
 
 // ── Remote dashboard ─────────────────────────────────────────────────────────
 
-const MOBILE_HTML = `<!DOCTYPE html>
+function renderMobileHtml(token) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
 <title>LumiLauncher Remote</title>
+<link rel="manifest" href="/manifest.json?key=${token}"/>
+<link rel="icon" href="/icon.png"/>
+<link rel="apple-touch-icon" href="/icon.png"/>
+<meta name="theme-color" content="#0d0d14"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="LumiLauncher"/>
 <style>
   :root {
     --bg: #0d0d14; --bg2: #13131f; --bg3: #1a1a2e;
@@ -501,6 +516,17 @@ const MOBILE_HTML = `<!DOCTYPE html>
   <button class="btn full"    id="btn-browser" onclick="openLumi()">↗ Open Lumiverse in Browser</button>
 </div>
 
+<div class="section" id="bb-section" style="display:none">
+  <div class="status-bar">
+    <div class="dot" id="bb-dot"></div>
+    <span class="status-label" id="bb-status">BananaBread</span>
+  </div>
+  <div class="controls">
+    <button class="btn primary" id="btn-bb-start" onclick="send('bb-start')">🍌 Start</button>
+    <button class="btn danger"  id="btn-bb-stop"  onclick="send('bb-stop')">■ Stop</button>
+  </div>
+</div>
+
 <div class="log-header">
   <span class="log-label">Live Log</span>
   <button class="clear-btn" onclick="clearLog()">clear</button>
@@ -516,6 +542,11 @@ const MOBILE_HTML = `<!DOCTYPE html>
   const btnStart = document.getElementById('btn-start');
   const btnStop = document.getElementById('btn-stop');
   const btnRestart = document.getElementById('btn-restart');
+  const bbSection = document.getElementById('bb-section');
+  const bbDot = document.getElementById('bb-dot');
+  const bbStatusEl = document.getElementById('bb-status');
+  const btnBbStart = document.getElementById('btn-bb-start');
+  const btnBbStop = document.getElementById('btn-bb-stop');
 
   const STATUS_LABELS = {
     stopped: 'Lumiverse is not running.',
@@ -523,20 +554,38 @@ const MOBILE_HTML = `<!DOCTYPE html>
     running: 'Lumiverse is running.',
     error: 'Something went wrong.',
   };
+  const BB_STATUS_LABELS = {
+    stopped: 'BananaBread is not running.',
+    starting: 'Starting BananaBread...',
+    running: 'BananaBread is running.',
+    error: 'BananaBread had a problem.',
+  };
 
   let ws;
+  let reconnectTimer;
   function connect() {
-    ws = new WebSocket('ws://' + location.host);
+    clearTimeout(reconnectTimer);
+    ws = new WebSocket('ws://' + location.host + location.search);
     ws.onopen = () => { wsDot.className = 'ws-dot connected'; wsLabel.textContent = 'live'; };
-    ws.onclose = () => { wsDot.className = 'ws-dot'; wsLabel.textContent = 'disconnected'; setTimeout(connect, 3000); };
+    ws.onclose = () => { wsDot.className = 'ws-dot'; wsLabel.textContent = 'disconnected'; reconnectTimer = setTimeout(connect, 3000); };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'status') setStatus(msg.data);
+      if (msg.type === 'bb-status') setBbStatus(msg.data);
       if (msg.type === 'log') addLog(msg.data);
-      if (msg.type === 'init') { setStatus(msg.status); msg.logs.forEach(addLog); }
+      if (msg.type === 'init') {
+        setStatus(msg.status);
+        if (msg.bbEnabled) { bbSection.style.display = ''; setBbStatus(msg.bbStatus); }
+        msg.logs.forEach(addLog);
+      }
     };
   }
   connect();
+
+  // mobile browsers suspend background WebSockets — reconnect right away when the tab comes back
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && (!ws || ws.readyState !== WebSocket.OPEN)) connect();
+  });
 
   function send(action) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action })); }
   function openLumi() { window.open('http://' + location.hostname + ':7860', '_blank'); }
@@ -548,6 +597,13 @@ const MOBILE_HTML = `<!DOCTYPE html>
     btnStart.disabled   = s === 'starting' || s === 'running';
     btnStop.disabled    = s === 'stopped'  || s === 'error';
     btnRestart.disabled = s === 'stopped'  || s === 'error' || s === 'starting';
+  }
+
+  function setBbStatus(s) {
+    bbDot.className = 'dot ' + s;
+    bbStatusEl.textContent = BB_STATUS_LABELS[s] || s;
+    btnBbStart.disabled = s === 'starting' || s === 'running';
+    btnBbStop.disabled  = s === 'stopped'  || s === 'error';
   }
 
   function addLog(entry) {
@@ -565,8 +621,58 @@ const MOBILE_HTML = `<!DOCTYPE html>
 </script>
 </body>
 </html>`;
+}
 
 let recentLogs = [];
+
+// ── Remote dashboard security ────────────────────────────────────────────────
+
+// Tailscale IPs always live in the 100.64.0.0/10 CGNAT range — find one so we
+// can bind the remote server there instead of 0.0.0.0 (every interface).
+function findTailscaleIP() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        const parts = net.address.split('.').map(Number);
+        if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return net.address;
+      }
+    }
+  }
+  return null;
+}
+
+function getOrCreateRemoteToken(cfg) {
+  if (!cfg.remoteToken) {
+    cfg.remoteToken = crypto.randomBytes(16).toString('hex');
+    saveConfig(cfg);
+  }
+  return cfg.remoteToken;
+}
+
+async function regenerateRemoteToken() {
+  const cfg = loadConfig();
+  cfg.remoteToken = crypto.randomBytes(16).toString('hex');
+  saveConfig(cfg);
+  if (remoteServer) {
+    await stopRemoteServer();
+    startRemoteServer();
+  }
+  return getRemoteUrl();
+}
+
+function getRemoteUrl() {
+  const cfg = loadConfig();
+  if (!cfg.remoteEnabled) return null;
+  const token = getOrCreateRemoteToken(cfg);
+  const ip = findTailscaleIP() || 'YOUR-TAILSCALE-IP';
+  return `http://${ip}:${remotePort}/?key=${token}`;
+}
+
+function checkRemoteToken(url, token) {
+  try { return new URL(url, 'http://x').searchParams.get('key') === token; }
+  catch { return false; }
+}
 
 function broadcastToRemote(msg) {
   const data = JSON.stringify(msg);
@@ -578,25 +684,82 @@ function broadcastToRemote(msg) {
 function startRemoteServer() {
   const cfg = loadConfig();
   if (!cfg.remoteEnabled) return;
+  if (remoteServer) return; // already running — Save shouldn't spin up a second one on the same port
+
+  const token = getOrCreateRemoteToken(cfg);
+  const bindIP = findTailscaleIP();
+  if (!bindIP) {
+    sendLog({ level: 'warn', msg: '⚠️ No Tailscale interface found — remote dashboard will listen on ALL networks, not just Tailscale. Connect Tailscale to restrict this.', raw: '' });
+  }
 
   remoteServer = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(MOBILE_HTML);
+    const pathname = (req.url || '').split('?')[0];
+
+    if (pathname === '/manifest.json') {
+      if (!checkRemoteToken(req.url, token)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden — missing or invalid key.');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8' });
+      res.end(JSON.stringify({
+        name: 'LumiLauncher Remote',
+        short_name: 'LumiLauncher',
+        start_url: `/?key=${token}`,
+        display: 'standalone',
+        background_color: '#0d0d14',
+        theme_color: '#0d0d14',
+        icons: [
+          { src: '/icon.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+        ],
+      }));
+      return;
+    }
+
+    if (pathname === '/icon.png') {
+      try {
+        const iconPath = path.join(__dirname, 'assets', 'icon.png');
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(fs.readFileSync(iconPath));
+      } catch {
+        res.writeHead(404); res.end();
+      }
+      return;
+    }
+
+    if (!checkRemoteToken(req.url, token)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden — missing or invalid key.');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(renderMobileHtml(token));
   });
 
   wss = new WebSocketServer({ server: remoteServer });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    if (!checkRemoteToken(req.url, token)) { ws.close(1008, 'unauthorized'); return; }
     remoteClients.add(ws);
     // send current state + recent logs
-    ws.send(JSON.stringify({ type: 'init', status: isRunning ? 'running' : 'stopped', logs: recentLogs.slice(-50) }));
+    const liveCfg = loadConfig();
+    ws.send(JSON.stringify({
+      type: 'init',
+      status: isRunning ? 'running' : 'stopped',
+      bbEnabled: !!liveCfg.bananabreadEnabled,
+      bbStatus: isBBRunning ? 'running' : 'stopped',
+      logs: recentLogs.slice(-50),
+    }));
 
     ws.on('message', (raw) => {
       try {
         const { action } = JSON.parse(raw.toString());
-        if (action === 'start')   startLumiverse();
-        if (action === 'stop')    stopLumiverse();
-        if (action === 'restart') restartLumiverse();
+        if (action === 'start')    startLumiverse();
+        if (action === 'stop')     stopLumiverse();
+        if (action === 'restart')  restartLumiverse();
+        if (action === 'bb-start') startBananaBread();
+        if (action === 'bb-stop')  stopBananaBread();
       } catch {}
     });
 
@@ -604,8 +767,19 @@ function startRemoteServer() {
     ws.on('error', () => remoteClients.delete(ws));
   });
 
-  remoteServer.listen(remotePort, '0.0.0.0', () => {
-    sendLog({ level: 'info', msg: `📱 Remote dashboard available at http://YOUR-TAILSCALE-IP:${remotePort}`, raw: '' });
+  remoteServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      sendLog({ level: 'error', msg: `❌ Remote dashboard port ${remotePort} is already in use — another LumiLauncher instance may still be running (check Task Manager). Remote dashboard disabled for this session.`, raw: '' });
+    } else {
+      sendLog({ level: 'error', msg: `❌ Remote dashboard failed to start: ${err.message}`, raw: '' });
+    }
+    try { remoteServer.close(); } catch {}
+    remoteServer = null;
+    wss = null;
+  });
+
+  remoteServer.listen(remotePort, bindIP || '0.0.0.0', () => {
+    sendLog({ level: 'info', msg: `📱 Remote dashboard: ${getRemoteUrl()}`, raw: '' });
   });
 }
 
@@ -613,7 +787,13 @@ function stopRemoteServer() {
   for (const client of remoteClients) { try { client.close(); } catch {} }
   remoteClients.clear();
   if (wss) { wss.close(); wss = null; }
-  if (remoteServer) { remoteServer.close(); remoteServer = null; }
+  return new Promise((resolve) => {
+    if (remoteServer) {
+      remoteServer.close(() => { remoteServer = null; resolve(); });
+    } else {
+      resolve();
+    }
+  });
 }
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
@@ -628,7 +808,10 @@ function sendStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('status', status);
   broadcastToRemote({ type: 'status', data: status });
 }
-function sendBBStatus(status){ if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bb-status', status); }
+function sendBBStatus(status){
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('bb-status', status);
+  broadcastToRemote({ type: 'bb-status', data: status });
+}
 function sendUpdate(payload) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-status', payload); }
 function sendTermData(data)  { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('term-data', data); }
 function sendMode(mode)      { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mode', mode); }
@@ -726,7 +909,7 @@ ipcMain.on('open-browser',            ()          => shell.openExternal(`http://
 ipcMain.on('open-bb-browser',         ()          => shell.openExternal(`http://localhost:${BANANABREAD_PORT}/docs`));
 ipcMain.on('clear-logs',              ()          => { if (mainWindow) mainWindow.webContents.send('clear-logs'); });
 ipcMain.handle('get-config',          ()          => loadConfig());
-ipcMain.on('save-config',             (_, cfg)    => saveConfig(cfg));
+ipcMain.on('save-config', (_, cfg) => saveConfig({ ...loadConfig(), ...cfg }));
 ipcMain.handle('is-running',          ()          => isRunning);
 ipcMain.handle('is-bb-running',       ()          => isBBRunning);
 ipcMain.handle('is-setup-complete',   ()          => isSetupComplete());
@@ -738,6 +921,8 @@ ipcMain.on('install-launcher-update', ()          => autoUpdater.quitAndInstall(
 ipcMain.handle('get-version', () => app.getVersion());
 ipcMain.on('start-remote',  () => startRemoteServer());
 ipcMain.on('stop-remote',   () => stopRemoteServer());
+ipcMain.handle('get-remote-url', () => getRemoteUrl());
+ipcMain.handle('regenerate-remote-token', () => regenerateRemoteToken());
 ipcMain.on('term-input',  (_, data)         => { if (ptyProcess) { try { ptyProcess.write(data); } catch {} } });
 ipcMain.on('term-resize', (_, { cols, rows })=> { if (ptyProcess) { try { ptyProcess.resize(cols, rows); } catch {} } });
 ipcMain.on('reset-setup', () => { try { fs.unlinkSync(SETUP_DONE_PATH); } catch {} sendMode('terminal'); });
